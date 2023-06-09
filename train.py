@@ -60,6 +60,7 @@ parser.add_argument('--beta', default=0, type=float,
                     help='hyperparameter beta')
 parser.add_argument('--cutmix_prob', default=0, type=float,
                     help='cutmix probability')
+parser.add_argument('--cpu', action='store_true', help='Use ONLY CPU')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
@@ -67,10 +68,10 @@ parser.set_defaults(verbose=True)
 best_err1 = 100
 best_err5 = 100
 
-
 def main():
     global args, best_err1, best_err5
     args = parser.parse_args()
+    cuda = not args.cpu
 
     if args.dataset.startswith('cifar'):
         normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
@@ -157,17 +158,21 @@ def main():
         model = RN.ResNet(args.dataset, args.depth, numberofclass, args.bottleneck)  # for ResNet
     elif args.net_type == 'pyramidnet':
         model = PYRM.PyramidNet(args.dataset, args.depth, args.alpha, numberofclass,
-                                args.bottleneck)
+                                args.bottleneck, cuda)
     else:
         raise Exception('unknown network architecture: {}'.format(args.net_type))
     
-    model = torch.nn.DataParallel(model).cuda()
+    model = torch.nn.DataParallel(model)
+    if cuda:
+        model = model.cuda()
 
     print(model)
     print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+    criterion = nn.CrossEntropyLoss()
+    if cuda:
+        criterion = criterion.cuda()
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -180,10 +185,10 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train_loss = train(train_loader, model, criterion, optimizer, epoch)
+        train_loss = train(train_loader, model, criterion, optimizer, epoch, cuda)
 
         # evaluate on validation set
-        err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
+        err1, err5, val_loss = validate(val_loader, model, criterion, epoch, cuda)
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -204,7 +209,7 @@ def main():
     print('Best accuracy (top-1 and 5 error):', best_err1, best_err5)
 
 
-def train(train_loader, model, criterion, optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch, cuda):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -220,14 +225,17 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        input = input.cuda()
-        target = target.cuda()
+        if cuda:
+            input = input.cuda()
+            target = target.cuda()
 
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
             # generate mixed sample
             lam = np.random.beta(args.beta, args.beta)
-            rand_index = torch.randperm(input.size()[0]).cuda()
+            rand_index = torch.randperm(input.size()[0])
+            if cuda:
+                rand_index = rand_index.cuda()
             target_a = target
             target_b = target[rand_index]
             bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam)
@@ -294,7 +302,7 @@ def rand_bbox(size, lam):
     return bbx1, bby1, bbx2, bby2
 
 
-def validate(val_loader, model, criterion, epoch):
+def validate(val_loader, model, criterion, epoch, cuda):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -305,7 +313,8 @@ def validate(val_loader, model, criterion, epoch):
 
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
-        target = target.cuda()
+        if cuda:
+            target = target.cuda()
 
         output = model(input)
         loss = criterion(output, target)
@@ -397,7 +406,7 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
         wrong_k = batch_size - correct_k
         res.append(wrong_k.mul_(100.0 / batch_size))
 

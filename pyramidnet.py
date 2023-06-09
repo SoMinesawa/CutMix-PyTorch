@@ -1,8 +1,10 @@
 # Original code: https://github.com/dyhan0920/PyramidNet-PyTorch/blob/master/PyramidNet.py
 
+import math
+
 import torch
 import torch.nn as nn
-import math
+
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -44,7 +46,10 @@ class BasicBlock(nn.Module):
         shortcut_channel = shortcut.size()[1]
 
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.cuda.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
+            if self.cuda:
+                padding = torch.autograd.Variable(torch.cuda.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
+            else:
+                padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut 
@@ -55,7 +60,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     outchannel_ratio = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=16):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, reduction=16, cuda=True):
         super(Bottleneck, self).__init__()
         self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
@@ -68,6 +73,7 @@ class Bottleneck(nn.Module):
         
         self.downsample = downsample
         self.stride = stride
+        self.cuda = cuda
 
     def forward(self, x):
 
@@ -95,7 +101,10 @@ class Bottleneck(nn.Module):
         shortcut_channel = shortcut.size()[1]
 
         if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.cuda.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
+            if self.cuda:
+                padding = torch.autograd.Variable(torch.cuda.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
+            else:
+                padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0)) 
             out += torch.cat((shortcut, padding), 1)
         else:
             out += shortcut 
@@ -105,9 +114,10 @@ class Bottleneck(nn.Module):
 
 class PyramidNet(nn.Module):
         
-    def __init__(self, dataset, depth, alpha, num_classes, bottleneck=False):
+    def __init__(self, dataset, depth, alpha, num_classes, bottleneck=False, cuda=True):
         super(PyramidNet, self).__init__()   	
         self.dataset = dataset
+        self.cuda = cuda
         if self.dataset.startswith('cifar'):
             self.inplanes = 16
             if bottleneck == True:
@@ -185,10 +195,10 @@ class PyramidNet(nn.Module):
 
         layers = []
         self.featuremap_dim = self.featuremap_dim + self.addrate
-        layers.append(block(self.input_featuremap_dim, int(round(self.featuremap_dim)), stride, downsample))
+        layers.append(block(self.input_featuremap_dim, int(round(self.featuremap_dim)), stride, downsample, cuda=self.cuda))
         for i in range(1, block_depth):
             temp_featuremap_dim = self.featuremap_dim + self.addrate
-            layers.append(block(int(round(self.featuremap_dim)) * block.outchannel_ratio, int(round(temp_featuremap_dim)), 1))
+            layers.append(block(int(round(self.featuremap_dim)) * block.outchannel_ratio, int(round(temp_featuremap_dim)), 1, cuda=self.cuda))
             self.featuremap_dim  = temp_featuremap_dim
         self.input_featuremap_dim = int(round(self.featuremap_dim)) * block.outchannel_ratio
 

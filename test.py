@@ -47,6 +47,7 @@ parser.add_argument('--alpha', default=300, type=float,
 parser.add_argument('--no-verbose', dest='verbose', action='store_false',
                     help='to print the status at every iteration')
 parser.add_argument('--pretrained', default='/set/your/model/path', type=str, metavar='PATH')
+parser.add_argument('--cpu', action='store_true', help='Use ONLY CPU')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
@@ -58,6 +59,7 @@ best_err5 = 100
 def main():
     global args, best_err1, best_err5
     args = parser.parse_args()
+    cuda = not args.cpu
 
     if args.dataset.startswith('cifar'):
         normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
@@ -113,15 +115,20 @@ def main():
         model = RN.ResNet(args.dataset, args.depth, numberofclass, args.bottleneck)  # for ResNet
     elif args.net_type == 'pyramidnet':
         model = PYRM.PyramidNet(args.dataset, args.depth, args.alpha, numberofclass,
-                                args.bottleneck)
+                                args.bottleneck, cuda)
     else:
         raise Exception('unknown network architecture: {}'.format(args.net_type))
 
-    model = torch.nn.DataParallel(model).cuda()
+    model = torch.nn.DataParallel(model)
+    if cuda:
+        model = model.cuda()
 
     if os.path.isfile(args.pretrained):
         print("=> loading checkpoint '{}'".format(args.pretrained))
-        checkpoint = torch.load(args.pretrained)
+        if cuda:
+            checkpoint = torch.load(args.pretrained)
+        else:
+            checkpoint = torch.load(args.pretrained, map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['state_dict'])
         print("=> loaded checkpoint '{}'".format(args.pretrained))
     else:
@@ -131,17 +138,19 @@ def main():
     print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
-    criterion = nn.CrossEntropyLoss().cuda()
+    criterion = nn.CrossEntropyLoss()
+    if cuda:
+        criterion = criterion.cuda()
 
     cudnn.benchmark = True
 
     # evaluate on validation set
-    err1, err5, val_loss = validate(val_loader, model, criterion)
+    err1, err5, val_loss = validate(val_loader, model, criterion, cuda)
 
     print('Accuracy (top-1 and 5 error):', err1, err5)
 
 
-def validate(val_loader, model, criterion):
+def validate(val_loader, model, criterion, cuda):
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -152,7 +161,8 @@ def validate(val_loader, model, criterion):
 
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
-        target = target.cuda()
+        if cuda:
+            target = target.cuda()
 
         output = model(input)
         loss = criterion(output, target)
@@ -211,7 +221,7 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
         wrong_k = batch_size - correct_k
         res.append(wrong_k.mul_(100.0 / batch_size))
 
