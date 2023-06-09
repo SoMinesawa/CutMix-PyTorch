@@ -4,23 +4,22 @@ import argparse
 import os
 import shutil
 import time
+import warnings
 
+import numpy as np
+import pyramidnet as PYRM
+import resnet as RN
 import torch
+import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.parallel
-import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-import resnet as RN
-import pyramidnet as PYRM
+import torchvision.transforms as transforms
 import utils
-import numpy as np
-
-import warnings
 
 warnings.filterwarnings("ignore")
 
@@ -161,7 +160,7 @@ def main():
                                 args.bottleneck)
     else:
         raise Exception('unknown network architecture: {}'.format(args.net_type))
-
+    
     model = torch.nn.DataParallel(model).cuda()
 
     print(model)

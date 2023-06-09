@@ -4,21 +4,20 @@ import argparse
 import os
 import shutil
 import time
+import warnings
 
+import pyramidnet as PYRM
+import resnet as RN
 import torch
+import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.nn.parallel
-import torch.backends.cudnn as cudnn
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-import resnet as RN
-import pyramidnet as PYRM
-
-import warnings
+import torchvision.transforms as transforms
 
 warnings.filterwarnings("ignore")
 

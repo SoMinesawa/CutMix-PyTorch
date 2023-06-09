@@ -1,7 +1,8 @@
 # original code: https://github.com/eladhoffer/convNet.pytorch/blob/master/preprocess.py
 
-import torch
 import random
+
+import torch
 
 __all__ = ["Compose", "Lighting", "ColorJitter"]
 

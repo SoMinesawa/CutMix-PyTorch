@@ -3,3 +3,5 @@ __pycache__/
 runs/
 train_nsml.py
 requirements.txt
+/poetry.lock
+/.python-version

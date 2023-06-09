@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "cutmix-pytorch"
+version = "0.1.0"
+description = ""
+authors = ["SoMinesawa <so.minesawa2002@gmail.com>"]
+readme = "README.md"
+packages = [{include = "cutmix_pytorch"}]
+
+[tool.poetry.dependencies]
+python = "3.11.1"
+torch = "^2.0.0"
+torchvision = "^0.15.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
