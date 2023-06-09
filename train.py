@@ -346,13 +346,13 @@ def validate(val_loader, model, criterion, epoch, cuda):
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    directory = "runs/%s/" % (args.expname)
+    directory = "../runs/%s/" % (args.expname)
     if not os.path.exists(directory):
         os.makedirs(directory)
     filename = directory + filename
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'runs/%s/' % (args.expname) + 'model_best.pth.tar')
+        shutil.copyfile(filename, '../runs/%s/' % (args.expname) + 'model_best.pth.tar')
 
 
 class AverageMeter(object):
