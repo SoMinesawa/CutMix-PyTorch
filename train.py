@@ -6,6 +6,7 @@ import shutil
 import time
 import warnings
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pyramidnet as PYRM
 import resnet as RN
@@ -19,6 +20,7 @@ import torch.utils.data.distributed
 import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
+import torchvision.utils as u
 import utils
 
 warnings.filterwarnings("ignore")
@@ -166,7 +168,6 @@ def main():
     if cuda:
         model = model.cuda()
 
-    print(model)
     print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
@@ -231,20 +232,62 @@ def train(train_loader, model, criterion, optimizer, epoch, cuda):
 
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
-            # generate mixed sample
-            lam = np.random.beta(args.beta, args.beta)
-            rand_index = torch.randperm(input.size()[0])
-            if cuda:
-                rand_index = rand_index.cuda()
-            target_a = target
-            target_b = target[rand_index]
-            bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam)
-            input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index, :, bbx1:bbx2, bby1:bby2]
-            # adjust lambda to exactly match pixel ratio
-            lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
-            # compute output
-            output = model(input)
-            loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
+            if args.dataset.startswith('cifar'):
+                mean = np.array([125.3, 123.0, 113.9]) / 255
+                std = np.array([63.0, 62.1, 66.7]) / 255
+                # Save original images before cutmix as png
+                original_out = u.make_grid(input)
+                np_image_original = original_out.permute(1, 2, 0).cpu().numpy()
+                np_image_original = np_image_original * std + mean
+                plt.imsave(f'original_example.png', (np_image_original * 255).astype(np.uint8))
+
+                # generate mixed sample
+                lam1 = np.random.beta(args.beta, args.beta)
+                lam2 = np.random.beta(args.beta, args.beta)
+                rand_index1 = torch.randperm(input.size()[0])
+                rand_index2 = torch.randperm(input.size()[0])
+                if cuda:
+                    rand_index1 = rand_index1.cuda()
+                    rand_index2 = rand_index2.cuda()
+                target_a = target
+                target_b = target[rand_index1]
+                target_c = target[rand_index2]
+                bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam1)
+                bbx3, bby3, bbx4, bby4 = rand_bbox(input.size(), lam2)
+                input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index1, :, bbx1:bbx2, bby1:bby2]
+                # Make a grid from batch
+                out = u.make_grid(input)
+                # Save input as png
+                # First, need to permute the dimensions to (H, W, C), then convert to numpy
+                np_image = out.permute(1, 2, 0).cpu().numpy()
+                np_image = np_image * std + mean
+                # Denormalize from [0,1] to [0,255], convert to uint8, and save
+                plt.imsave(f'cutmix_now_example.png', (np_image * 255).astype(np.uint8))
+                input[:, :, bbx3:bbx4, bby3:bby4] = input[rand_index2, :, bbx3:bbx4, bby3:bby4]
+
+                # compute areas of each bounding box
+                area1 = (bbx2 - bbx1) * (bby2 - bby1)
+                area2 = (bbx4 - bbx3) * (bby4 - bby3)
+                # compute intersection of the bounding boxes if they intersect
+                intersection = max(0, min(bbx2, bbx4) - max(bbx1, bbx3)) * max(0, min(bby2, bby4) - max(bby1, bby3))
+                # total area of the two bounding boxes counting intersection only once
+                total_area = area1 + area2 - intersection
+                # adjust lambda to exactly match pixel ratio
+                lam1 = 1 - (total_area / (input.size()[-1] * input.size()[-2]))
+                lam2 = (total_area - area2) / (input.size()[-1] * input.size()[-2])
+                print(f'lam1:{lam1}, lam2:{lam2}')
+
+                # Make a grid from batch
+                out = u.make_grid(input)
+                # Save input as png
+                # First, need to permute the dimensions to (H, W, C), then convert to numpy
+                np_image = out.permute(1, 2, 0).cpu().numpy()
+                np_image = np_image * std + mean
+                # Denormalize from [0,1] to [0,255], convert to uint8, and save
+                plt.imsave(f'cutmix_example.png', (np_image * 255).astype(np.uint8))
+                # compute output
+                output = model(input)
+                loss = criterion(output, target_a) * lam1 + criterion(output, target_b) * lam2 + criterion(output, target_c) * (1. - lam1 - lam2)
         else:
             # compute output
             output = model(input)
@@ -300,6 +343,16 @@ def rand_bbox(size, lam):
     bby2 = np.clip(cy + cut_h // 2, 0, H)
 
     return bbx1, bby1, bbx2, bby2
+
+
+def save_batch_image(input, std, mean, filename):
+    # Make a grid from batch
+    out = u.make_grid(input)
+    # First, need to permute the dimensions to (H, W, C), then convert to numpy
+    np_image = out.permute(1, 2, 0).cpu().numpy()
+    np_image = np_image * std + mean
+    # Denormalize from [0,1] to [0,255], convert to uint8, and save
+    plt.imsave(filename, (np_image * 255).astype(np.uint8))
 
 
 def validate(val_loader, model, criterion, epoch, cuda):

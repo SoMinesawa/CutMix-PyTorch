@@ -5,3 +5,4 @@ train_nsml.py
 requirements.txt
 /poetry.lock
 /.python-version
+/*.png
