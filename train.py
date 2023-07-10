@@ -29,7 +29,8 @@ model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='Cutmix PyTorch CIFAR-10, CIFAR-100 and ImageNet-1k Training')
+parser = argparse.ArgumentParser(
+    description='Cutmix PyTorch CIFAR-10, CIFAR-100 and ImageNet-1k Training')
 parser.add_argument('--net_type', default='pyramidnet', type=str,
                     help='networktype: resnet, and pyamidnet')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
@@ -63,12 +64,14 @@ parser.add_argument('--beta', default=0, type=float,
 parser.add_argument('--cutmix_prob', default=0, type=float,
                     help='cutmix probability')
 parser.add_argument('--cpu', action='store_true', help='Use ONLY CPU')
+parser.add_argument('--debug', action='store_true', help='Enable Debug mode')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
 
 best_err1 = 100
 best_err5 = 100
+
 
 def main():
     global args, best_err1, best_err5
@@ -93,18 +96,22 @@ def main():
 
         if args.dataset == 'cifar100':
             train_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('../data', train=True, download=True, transform=transform_train),
+                datasets.CIFAR100('../data', train=True,
+                                  download=True, transform=transform_train),
                 batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
             val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('../data', train=False, transform=transform_test),
+                datasets.CIFAR100('../data', train=False,
+                                  transform=transform_test),
                 batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
             numberofclass = 100
         elif args.dataset == 'cifar10':
             train_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('../data', train=True, download=True, transform=transform_train),
+                datasets.CIFAR10('../data', train=True,
+                                 download=True, transform=transform_train),
                 batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
             val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('../data', train=False, transform=transform_test),
+                datasets.CIFAR10('../data', train=False,
+                                 transform=transform_test),
                 batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
             numberofclass = 10
         else:
@@ -138,7 +145,8 @@ def main():
         train_sampler = None
 
         train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
+            train_dataset, batch_size=args.batch_size, shuffle=(
+                train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
         val_loader = torch.utils.data.DataLoader(
@@ -157,18 +165,21 @@ def main():
 
     print("=> creating model '{}'".format(args.net_type))
     if args.net_type == 'resnet':
-        model = RN.ResNet(args.dataset, args.depth, numberofclass, args.bottleneck)  # for ResNet
+        model = RN.ResNet(args.dataset, args.depth,
+                          numberofclass, args.bottleneck)  # for ResNet
     elif args.net_type == 'pyramidnet':
         model = PYRM.PyramidNet(args.dataset, args.depth, args.alpha, numberofclass,
                                 args.bottleneck, cuda)
     else:
-        raise Exception('unknown network architecture: {}'.format(args.net_type))
-    
+        raise Exception(
+            'unknown network architecture: {}'.format(args.net_type))
+
     model = torch.nn.DataParallel(model)
     if cuda:
         model = model.cuda()
 
-    print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
+    print('the number of model parameters: {}'.format(
+        sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -186,10 +197,12 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train_loss = train(train_loader, model, criterion, optimizer, epoch, cuda)
+        train_loss = train(train_loader, model, criterion,
+                           optimizer, epoch, cuda)
 
         # evaluate on validation set
-        err1, err5, val_loss = validate(val_loader, model, criterion, epoch, cuda)
+        err1, err5, val_loss = validate(
+            val_loader, model, criterion, epoch, cuda)
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -232,62 +245,24 @@ def train(train_loader, model, criterion, optimizer, epoch, cuda):
 
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
-            if args.dataset.startswith('cifar'):
-                mean = np.array([125.3, 123.0, 113.9]) / 255
-                std = np.array([63.0, 62.1, 66.7]) / 255
-                # Save original images before cutmix as png
-                original_out = u.make_grid(input)
-                np_image_original = original_out.permute(1, 2, 0).cpu().numpy()
-                np_image_original = np_image_original * std + mean
-                plt.imsave(f'original_example.png', (np_image_original * 255).astype(np.uint8))
+            if args.debug:
+                save_batch_image(
+                    input=input, filename='original_example.png', dataset=args.dataset)
 
-                # generate mixed sample
-                lam1 = np.random.beta(args.beta, args.beta)
-                lam2 = np.random.beta(args.beta, args.beta)
-                rand_index1 = torch.randperm(input.size()[0])
-                rand_index2 = torch.randperm(input.size()[0])
-                if cuda:
-                    rand_index1 = rand_index1.cuda()
-                    rand_index2 = rand_index2.cuda()
-                target_a = target
-                target_b = target[rand_index1]
-                target_c = target[rand_index2]
-                bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam1)
-                bbx3, bby3, bbx4, bby4 = rand_bbox(input.size(), lam2)
-                input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index1, :, bbx1:bbx2, bby1:bby2]
-                # Make a grid from batch
-                out = u.make_grid(input)
-                # Save input as png
-                # First, need to permute the dimensions to (H, W, C), then convert to numpy
-                np_image = out.permute(1, 2, 0).cpu().numpy()
-                np_image = np_image * std + mean
-                # Denormalize from [0,1] to [0,255], convert to uint8, and save
-                plt.imsave(f'cutmix_now_example.png', (np_image * 255).astype(np.uint8))
-                input[:, :, bbx3:bbx4, bby3:bby4] = input[rand_index2, :, bbx3:bbx4, bby3:bby4]
+            print(f'target:{target}')
+            input, targets, lambdas = cutmix_n(input, target, args, cuda, 3)
 
-                # compute areas of each bounding box
-                area1 = (bbx2 - bbx1) * (bby2 - bby1)
-                area2 = (bbx4 - bbx3) * (bby4 - bby3)
-                # compute intersection of the bounding boxes if they intersect
-                intersection = max(0, min(bbx2, bbx4) - max(bbx1, bbx3)) * max(0, min(bby2, bby4) - max(bby1, bby3))
-                # total area of the two bounding boxes counting intersection only once
-                total_area = area1 + area2 - intersection
-                # adjust lambda to exactly match pixel ratio
-                lam1 = 1 - (total_area / (input.size()[-1] * input.size()[-2]))
-                lam2 = (total_area - area2) / (input.size()[-1] * input.size()[-2])
-                print(f'lam1:{lam1}, lam2:{lam2}')
+            if args.debug:
+                print(f'targets:{targets}')
+                print(f'lambdas:{lambdas}')
+                save_batch_image(
+                    input=input, filename='cutmix_example.png', dataset=args.dataset)
 
-                # Make a grid from batch
-                out = u.make_grid(input)
-                # Save input as png
-                # First, need to permute the dimensions to (H, W, C), then convert to numpy
-                np_image = out.permute(1, 2, 0).cpu().numpy()
-                np_image = np_image * std + mean
-                # Denormalize from [0,1] to [0,255], convert to uint8, and save
-                plt.imsave(f'cutmix_example.png', (np_image * 255).astype(np.uint8))
-                # compute output
-                output = model(input)
-                loss = criterion(output, target_a) * lam1 + criterion(output, target_b) * lam2 + criterion(output, target_c) * (1. - lam1 - lam2)
+            # compute output
+            output = model(input)
+            loss = sum([criterion(output, target) * lam for target,
+                       lam in zip(targets, lambdas)])
+
         else:
             # compute output
             output = model(input)
@@ -317,13 +292,45 @@ def train(train_loader, model, criterion, optimizer, epoch, cuda):
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
                   'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
-                epoch, args.epochs, i, len(train_loader), LR=current_LR, batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5))
+                      epoch, args.epochs, i, len(train_loader), LR=current_LR, batch_time=batch_time,
+                      data_time=data_time, loss=losses, top1=top1, top5=top5))
 
     print('* Epoch: [{0}/{1}]\t Top 1-err {top1.avg:.3f}  Top 5-err {top5.avg:.3f}\t Train Loss {loss.avg:.3f}'.format(
         epoch, args.epochs, top1=top1, top5=top5, loss=losses))
 
     return losses.avg
+
+
+def cutmix_n(input, target, args, cuda, num_mixes=2):
+    """
+    num_mixes == 1 にも問題なく動作するはずだが、推奨はしない
+    """
+    W = input.size()[2]
+    H = input.size()[3]
+    size = W * H
+    sample = np.zeros((W, H), dtype=int)
+
+    # 長さnum_mixes - 1の配列
+    lams = np.random.beta(args.beta, args.beta, num_mixes-1)
+
+    # 長さnum_mixesの配列
+    targets = [target]
+
+    # num_mixes - 1 回繰り返す
+    for i in range(1, num_mixes):
+        rand_index = torch.randperm(input.size()[0])
+        if cuda:
+            rand_index = rand_index.cuda()
+        targets.append(target[rand_index])
+        bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lams[i-1])
+        input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index,
+                                                  :, bbx1:bbx2, bby1:bby2]
+        sample[bbx1:bbx2, bby1:bby2] = i
+
+    # adjust lambda to exactly match pixel ratio
+    lams = [np.count_nonzero(sample == i) / size for i in range(num_mixes)]
+
+    return input, targets, lams
 
 
 def rand_bbox(size, lam):
@@ -345,7 +352,14 @@ def rand_bbox(size, lam):
     return bbx1, bby1, bbx2, bby2
 
 
-def save_batch_image(input, std, mean, filename):
+def save_batch_image(input, filename, dataset='cifar'):
+    if dataset.startswith('cifar'):
+        mean = np.array([125.3, 123.0, 113.9]) / 255
+        std = np.array([63.0, 62.1, 66.7]) / 255
+    else:
+        raise NotImplementedError(
+            "Dataset normalization not implemented for this dataset.")
+
     # Make a grid from batch
     out = u.make_grid(input)
     # First, need to permute the dimensions to (H, W, C), then convert to numpy
@@ -390,8 +404,8 @@ def validate(val_loader, model, criterion, epoch, cuda):
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
                   'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
-                epoch, args.epochs, i, len(val_loader), batch_time=batch_time, loss=losses,
-                top1=top1, top5=top5))
+                      epoch, args.epochs, i, len(val_loader), batch_time=batch_time, loss=losses,
+                      top1=top1, top5=top5))
 
     print('* Epoch: [{0}/{1}]\t Top 1-err {top1.avg:.3f}  Top 5-err {top5.avg:.3f}\t Test Loss {loss.avg:.3f}'.format(
         epoch, args.epochs, top1=top1, top5=top5, loss=losses))
@@ -405,7 +419,8 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     filename = directory + filename
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, '../runs/%s/' % (args.expname) + 'model_best.pth.tar')
+        shutil.copyfile(filename, '../runs/%s/' %
+                        (args.expname) + 'model_best.pth.tar')
 
 
 class AverageMeter(object):
@@ -430,7 +445,8 @@ class AverageMeter(object):
 def adjust_learning_rate(optimizer, epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     if args.dataset.startswith('cifar'):
-        lr = args.lr * (0.1 ** (epoch // (args.epochs * 0.5))) * (0.1 ** (epoch // (args.epochs * 0.75)))
+        lr = args.lr * (0.1 ** (epoch // (args.epochs * 0.5))) * \
+            (0.1 ** (epoch // (args.epochs * 0.75)))
     elif args.dataset == ('imagenet'):
         if args.epochs == 300:
             lr = args.lr * (0.1 ** (epoch // 75))
