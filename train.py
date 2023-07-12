@@ -8,6 +8,7 @@ import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pyramidnet as PYRM
 import resnet as RN
 import torch
@@ -77,6 +78,18 @@ def main():
     global args, best_err1, best_err5
     args = parser.parse_args()
     cuda = not args.cpu
+
+    # Create lists to save the losses and errors.
+    train_losses = []
+    val_losses = []
+    train_1errors = []
+    train_5errors = []
+    val_1errors = []
+    val_5errors = []
+
+    # Create a DataFrame to save the results for each epoch.
+    results = pd.DataFrame(columns=[
+                           'epoch', 'train_loss', 'val_loss', 'train_err1', 'val_err1', 'train_err5', 'val_err5'])
 
     if args.dataset.startswith('cifar'):
         normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
@@ -197,12 +210,29 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train_loss = train(train_loader, model, criterion,
-                           optimizer, epoch, cuda)
+        train_err1, train_err5, train_loss = train(train_loader, model, criterion,
+                                                   optimizer, epoch, cuda)
 
         # evaluate on validation set
         err1, err5, val_loss = validate(
             val_loader, model, criterion, epoch, cuda)
+
+        # Add the train loss and error to their respective lists.
+        train_losses.append(train_loss)
+        train_1errors.append(train_err1)
+        train_5errors.append(train_err5)
+
+        # Add the validation loss and error to their respective lists.
+        val_losses.append(val_loss)
+        val_1errors.append(err1)
+        val_5errors.append(err5)
+
+        # Add the results for this epoch to the DataFrame.
+        results.loc[epoch] = [epoch, train_loss,
+                              val_loss, train_err1, err1, train_err5, err5]
+
+        # Save the DataFrame to a CSV file.
+        results.to_csv(f"../runs/{args.expname}/results.csv", index=False)
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -219,6 +249,27 @@ def main():
             'best_err5': best_err5,
             'optimizer': optimizer.state_dict(),
         }, is_best)
+
+    # Plot the learning curves and save them as files.
+    plt.figure()
+    plt.plot(range(args.epochs), train_losses, label='Train')
+    plt.plot(range(args.epochs), val_losses, label='Validation')
+    plt.title('Loss Learning curve')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig(f"../runs/{args.expname}/loss_learning_curve.png")
+
+    plt.figure()
+    plt.plot(range(args.epochs), train_1errors, label='Train err-1')
+    plt.plot(range(args.epochs), train_5errors, label='Train err-5')
+    plt.plot(range(args.epochs), val_1errors, label='Val err-1')
+    plt.plot(range(args.epochs), val_5errors, label='Val err-5')
+    plt.title('Top-1& Top-5 Error Learning curve')
+    plt.xlabel('Epoch')
+    plt.ylabel('Error')
+    plt.legend()
+    plt.savefig(f"../runs/{args.expname}/error_learning_curve.png")
 
     print('Best accuracy (top-1 and 5 error):', best_err1, best_err5)
 
@@ -298,7 +349,7 @@ def train(train_loader, model, criterion, optimizer, epoch, cuda):
     print('* Epoch: [{0}/{1}]\t Top 1-err {top1.avg:.3f}  Top 5-err {top5.avg:.3f}\t Train Loss {loss.avg:.3f}'.format(
         epoch, args.epochs, top1=top1, top5=top5, loss=losses))
 
-    return losses.avg
+    return top1.avg, top5.avg, losses.avg
 
 
 def cutmix_n(input, target, args, cuda, num_mixes=2):
